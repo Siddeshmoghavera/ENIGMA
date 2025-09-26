@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>ENIGMA - Steganography (Text + File) — Fixed length-prefix</title>
+<style>
+  :root{
+    --bg1:#0f2027; --bg2:#203a43; --bg3:#2c5364;
+    --card-bg: rgba(255,255,255,0.04);
+    --accent1:#4facfe; --accent2:#00f2fe;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family: "Segoe UI", Roboto, Arial, sans-serif;
+    background: linear-gradient(135deg,var(--bg1),var(--bg2),var(--bg3));
+    color: #eef2f7;
+    -webkit-font-smoothing:antialiased;
+  }
+  header{
+    text-align:center;
+    padding:18px 12px;
+    font-size:45px;
+    letter-spacing:1px;
+    font-weight:700;
+    color:#dffbff;
+    border-bottom:1px solid rgba(255,255,255,0.03);
+  }
+  main{
+    padding:20px;
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap:18px;
+    max-width:1200px;
+    margin: 18px auto;
+  }
+  .card{
+    background: var(--card-bg);
+    border-radius:12px;
+    padding:16px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+    backdrop-filter: blur(6px);
+    border:1px solid rgba(255,255,255,0.03);
+  }
+  h2{ margin:6px 0 12px; font-size:1.2rem; color: #d6fbff; }
+  label{ display:block; margin:8px 0 6px; font-size:0.9rem; color:#cfeff3;}
+  input[type=file], input[type=password], textarea {
+    width:100%; padding:10px; border-radius:8px; border: none;
+    background: rgba(255,255,255,0.03); color:inherit; resize:vertical;
+  }
+  textarea{ min-height:120px; }
+  .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .btn{
+    background: linear-gradient(90deg,var(--accent1),var(--accent2));
+    color:#012; border:none; padding:10px 14px; border-radius:9px; cursor:pointer;
+    font-weight:700; box-shadow:0 8px 20px rgba(0,0,0,0.4);
+  }
+  .btn:hover{ transform:translateY(-2px); }
+  .small{ font-size:0.85rem; opacity:0.9; }
+  progress{ width:100%; height:10px; border-radius:8px; overflow:hidden; margin-top:10px; }
+  progress::-webkit-progress-bar{ background: rgba(255,255,255,0.04); }
+  progress::-webkit-progress-value{ background: linear-gradient(90deg,var(--accent1),var(--accent2)); }
+  img.preview{ max-width:100%; border-radius:8px; margin-top:10px; display:block; }
+  canvas.preview{ max-width:100%; border-radius:8px; margin-top:10px; display:block; background:#000;}
+  .status{ margin-top:8px; font-size:0.9rem; color:#bff7ff; opacity:0.95; }
+  .analysis-panel{ margin-top:12px; font-family:monospace; font-size:0.9rem; background: rgba(0,0,0,0.25); padding:10px; border-radius:8px; white-space:pre-wrap; max-height:320px; overflow:auto; }
+  table{ width:100%; border-collapse:collapse; margin-top:8px; font-size:0.9rem; }
+  th,td{ border:1px solid rgba(255,255,255,0.04); padding:6px 8px; text-align:center; }
+  th{ background: rgba(255,255,255,0.03); }
+</style>
+</head>
+<body>
+<header>ENIGMA</header>
+
+<main>
+  <!-- HIDE CARD -->
+  <section class="card" id="hide-card">
+    <h2>Hide — Cover Image to hide content</h2>
+
+    <label>Cover Image</label>
+    <input type="file" id="cover-image" accept="image/*">
+    <img id="cover-preview" class="preview" style="display:none">
+
+    <label>Secret Text (optional)</label>
+    <textarea id="secret-text" placeholder="Type a secret message to hide (optional)"></textarea>
+
+    <label>Secret File (optional)</label>
+    <input type="file" id="secret-file">
+    <div id="secret-file-info" class="small" style="opacity:0.9"></div>
+
+    <label>Use Encryption?</label>
+    <div class="row">
+      <input type="checkbox" id="use-encryption">
+      <input type="password" id="password" placeholder="Enter password (if checked)" style="flex:1" />
+    </div>
+
+    <div style="margin-top:12px" class="row">
+      <button class="btn" onclick="hideData()">Hide & Download Stego Image</button>
+      <div style="flex:1"></div>
+    </div>
+
+    <progress id="hide-progress" value="0" max="100" style="display:block;margin-top:12px"></progress>
+    <div id="hide-status" class="status">Ready</div>
+  </section>
+
+  <!-- EXTRACT CARD -->
+  <section class="card" id="extract-card">
+    <h2>Extract — Choose Stego Image</h2>
+
+    <label>Stego Image</label>
+    <input type="file" id="stego-image" accept="image/*">
+    <img id="stego-preview" class="preview" style="display:none">
+
+    <label>Password (if encrypted)</label>
+    <input type="password" id="decrypt-password" placeholder="Enter decryption password (if needed)">
+
+    <div style="margin-top:12px" class="row">
+      <button class="btn" onclick="extractData()">Extract</button>
+      <div style="flex:1"></div>
+    </div>
+
+    <progress id="extract-progress" value="0" max="100" style="display:block;margin-top:12px"></progress>
+    <div id="extract-status" class="status">Ready</div>
+
+    <div id="extracted-output" style="margin-top:12px"></div>
+  </section>
+
+  <!-- COMPARE CARD -->
+  <section class="card" id="compare-card">
+    <h2>Image Comparison</h2>
+
+    <label>Original Image</label>
+    <input type="file" id="original-image" accept="image/*">
+    <img id="original-preview" class="preview" style="display:none">
+
+    <label>Stego Image</label>
+    <input type="file" id="compare-stego" accept="image/*">
+    <img id="compare-preview" class="preview" style="display:none">
+
+    <div style="margin-top:10px" class="row">
+      <button class="btn" onclick="compareImages()">Show Difference</button>
+      <div style="flex:1"></div>
+    </div>
+
+    <canvas id="diff-canvas" class="preview" style="display:none"></canvas>
+    <div id="compare-results" class="analysis-panel">Load both images and click "Show Difference".</div>
+  </section>
+</main>
+
+<script>
+/* ------------------------------ */
+/* Helpers: Text/bytes and crypto */
+/* ------------------------------ */
+function stringToBytes(s){ return new TextEncoder().encode(s); }
+function bytesToString(b){ return new TextDecoder().decode(b); }
+
+async function deriveKeyFromPassword(password, salt){
+  const pwUtf8 = new TextEncoder().encode(password);
+  const baseKey = await crypto.subtle.importKey('raw', pwUtf8, 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 150000, hash: 'SHA-256' },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt','decrypt']
+  );
+}
+async function encryptBytes(plainBytes, password){
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await deriveKeyFromPassword(password, salt);
+  const cipher = await crypto.subtle.encrypt({ name:'AES-GCM', iv }, key, plainBytes);
+  return { salt, iv, ciphertext: new Uint8Array(cipher) };
+}
+async function decryptBytes(salt, iv, ciphertext, password){
+  const key = await deriveKeyFromPassword(password, salt);
+  const plain = await crypto.subtle.decrypt({ name:'AES-GCM', iv }, key, ciphertext).catch(()=>{ throw new Error('Decryption failed (wrong password or corrupted)') });
+  return new Uint8Array(plain);
+}
+
+/* -------------------------------------- */
+/* LSB embedding/extraction utilities     */
+/* -------------------------------------- */
+function bytesToBitsArray(bytes){
+  const arr=[]; for(let i=0;i<bytes.length;i++){ for(let b=7;b>=0;b--) arr.push((bytes[i]>>b)&1); }
+  return arr;
+}
+function bitsArrayToBytes(bits){
+  const len = Math.floor(bits.length/8), out = new Uint8Array(len);
+  for(let i=0;i<len;i++){ let v=0; for(let b=0;b<8;b++) v=(v<<1)|bits[i*8+b]; out[i]=v; }
+  return out;
+}
+function embedBitsIntoImageData(imageData, bits, progressCb){
+  const data=imageData.data, capacity=Math.floor(data.length/4)*3;
+  if(bits.length>capacity) throw new Error(`Payload too large. Need ${bits.length} bits, capacity ${capacity} bits.`);
+  let idx=0,total=bits.length;
+  for(let i=0;i<data.length&&idx<total;i+=4){
+    for(let ch=0;ch<3&&idx<total;ch++){ data[i+ch]=(data[i+ch]&0xFE)|bits[idx++]; }
+    if(progressCb && idx%8192===0) progressCb(idx/total);
+  }
+  if(progressCb) progressCb(1);
+  return imageData;
+}
+function extractNBitsFromImageData(imageData, n){
+  const data=imageData.data, bits=[];
+  for(let i=0;i<data.length && bits.length<n;i+=4){
+    for(let ch=0;ch<3 && bits.length<n;ch++){ bits.push(data[i+ch]&1); }
+  }
+  return bits;
+}
+function extractBitsFromImageDataStarting(imageData, skipBits, nBits){
+  const data=imageData.data, bits=[], totalPixels=Math.floor(data.length/4);
+  let startIndex=Math.floor(skipBits/3), startChannel=skipBits%3;
+  for(let px=startIndex;px<totalPixels&&bits.length<nBits;px++){
+    const base=px*4;
+    for(let ch=startChannel;ch<3&&bits.length<nBits;ch++){ bits.push(data[base+ch]&1); }
+    startChannel=0;
+  }
+  return bits;
+}
+
+/* ----------------------- */
+/* UI handlers (previews)  */
+/* ----------------------- */
+let coverImageData=null, secretFileData=null;
+document.getElementById('cover-image').addEventListener('change', async function(){
+  const f=this.files[0]; if(!f) return;
+  document.getElementById('cover-preview').src=URL.createObjectURL(f);
+  document.getElementById('cover-preview').style.display='block';
+  const img=await loadImageFromFile(f);
+  const canvas=document.createElement('canvas'); canvas.width=img.width; canvas.height=img.height;
+  const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0);
+  const id=ctx.getImageData(0,0,canvas.width,canvas.height);
+  coverImageData={canvas,ctx,id,width:canvas.width,height:canvas.height};
+});
+document.getElementById('secret-file').addEventListener('change', async function(){
+  const f=this.files[0];
+  if(!f){ secretFileData=null; document.getElementById('secret-file-info').textContent=''; return; }
+  document.getElementById('secret-file-info').textContent=`${f.name} — ${(f.size/1024).toFixed(1)} KB`;
+  const ab=await f.arrayBuffer();
+  secretFileData={name:f.name,size:f.size,bytes:new Uint8Array(ab),type:f.type||'application/octet-stream'};
+});
+document.getElementById('stego-image').addEventListener('change', function(){
+  const f=this.files[0]; if(!f) return;
+  document.getElementById('stego-preview').src=URL.createObjectURL(f);
+  document.getElementById('stego-preview').style.display='block';
+});
+document.getElementById('original-image').addEventListener('change', function(){
+  const f=this.files[0]; if(f){ document.getElementById('original-preview').src=URL.createObjectURL(f); document.getElementById('original-preview').style.display='block'; }
+});
+document.getElementById('compare-stego').addEventListener('change', function(){
+  const f=this.files[0]; if(f){ document.getElementById('compare-preview').src=URL.createObjectURL(f); document.getElementById('compare-preview').style.display='block'; }
+});
+async function loadImageFromFile(file){
+  return new Promise((res,rej)=>{ const img=new Image(); img.onload=()=>res(img); img.onerror=rej; img.src=URL.createObjectURL(file); });
+}
+
+/* ----------------------- */
+/* Hide flow (length-prefix) */
+/* ----------------------- */
+async function hideData(){
+  try{
+    setHideStatus('Preparing...'); document.getElementById('hide-progress').value=0;
+    if(!coverImageData){ alert('Select a cover image first'); return; }
+    const text=document.getElementById('secret-text').value||'', hasText=text.trim().length>0;
+    const fileEntry=secretFileData||null, hasFile=!!fileEntry;
+    if(!hasText && !hasFile){ alert('Provide secret text and/or a file to hide'); return; }
+    const metadata={hasText,textLen:hasText?(new TextEncoder().encode(text)).length:0,hasFile,fileName:hasFile?fileEntry.name:null,fileSize:hasFile?fileEntry.size:0,version:1};
+    const metadataBytes=stringToBytes(JSON.stringify(metadata));
+    const metadataLenBuf=new ArrayBuffer(4); new DataView(metadataLenBuf).setUint32(0,metadataBytes.length,false);
+    const textBytes=hasText?stringToBytes(text):new Uint8Array(0);
+    const fileBytes=hasFile?fileEntry.bytes:new Uint8Array(0);
+    const plainLen=4+metadataBytes.length+textBytes.length+fileBytes.length;
+    const finalPlain=new Uint8Array(plainLen);
+    let off=0; finalPlain.set(new Uint8Array(metadataLenBuf),off); off+=4;
+    finalPlain.set(metadataBytes,off); off+=metadataBytes.length;
+    if(hasText){ finalPlain.set(textBytes,off); off+=textBytes.length; }
+    if(hasFile){ finalPlain.set(fileBytes,off); off+=fileBytes.length; }
+    const useEnc=document.getElementById('use-encryption').checked; let payloadBytes;
+    if(useEnc){
+      const password=document.getElementById('password').value;
+      if(!password){ alert('Password required for encryption'); return; }
+      setHideStatus('Encrypting payload...'); const enc=await encryptBytes(finalPlain,password);
+      payloadBytes=new Uint8Array(enc.salt.length+enc.iv.length+enc.ciphertext.length);
+      let p=0; payloadBytes.set(enc.salt,p); p+=enc.salt.length; payloadBytes.set(enc.iv,p); p+=enc.iv.length; payloadBytes.set(enc.ciphertext,p);
+    } else { payloadBytes=finalPlain; }
+    const payloadLen=payloadBytes.length, embedBuffer=new Uint8Array(1+4+payloadLen);
+    embedBuffer[0]=useEnc?1:0; new DataView(embedBuffer.buffer).setUint32(1,payloadLen,false); embedBuffer.set(payloadBytes,5);
+    const bits=bytesToBitsArray(embedBuffer), imageCapacityBits=Math.floor(coverImageData.id.data.length/4)*3;
+    if(bits.length>imageCapacityBits){ alert(`Cover image too small. Need ${Math.ceil(bits.length/8)} bytes, have capacity ${Math.floor(imageCapacityBits/8)} bytes.`); setHideStatus('Cover image too small'); return; }
+    setHideStatus('Embedding into image...'); document.getElementById('hide-progress').value=5;
+    const idClone=new ImageData(new Uint8ClampedArray(coverImageData.id.data),coverImageData.id.width,coverImageData.id.height);
+    embedBitsIntoImageData(idClone,bits,(p)=>{ document.getElementById('hide-progress').value=5+Math.floor(p*90); });
+    coverImageData.ctx.putImageData(idClone,0,0);
+    coverImageData.canvas.toBlob(blob=>{
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a'); a.href=url; a.download='enigma_stego.png'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),5000); // ✅ delayed revoke
+      document.getElementById('hide-progress').value=100;
+      setHideStatus('Stego image created & downloaded ✔');
+    },'image/png');
+  }catch(err){ alert('Error: '+(err.message||err)); setHideStatus('Error occurred'); document.getElementById('hide-progress').value=0; console.error(err); }
+}
+
+/* ------------------------- */
+/* Extract flow              */
+/* ------------------------- */
+async function extractData(){
+  try{
+    setExtractStatus('Loading image...'); document.getElementById('extract-progress').value=0;
+    const file=document.getElementById('stego-image').files[0]; if(!file){ alert('Select stego image'); return; }
+    const img=await loadImageFromFile(file); const canvas=document.createElement('canvas'); canvas.width=img.width; canvas.height=img.height;
+    const ctx=canvas.getContext('2d'); ctx.drawImage(img,0,0); const id=ctx.getImageData(0,0,canvas.width,canvas.height);
+    setExtractStatus('Reading header...'); const first40Bits=extractNBitsFromImageData(id,40), headerBytes=bitsArrayToBytes(first40Bits);
+    const useEnc=headerBytes[0]===1; const payloadLen=new DataView(headerBytes.buffer,1,4).getUint32(0,false);
+    const payloadBits=extractBitsFromImageDataStarting(id,40,payloadLen*8), payloadBytes=bitsArrayToBytes(payloadBits);
+    let plainBytes; if(useEnc){ setExtractStatus('Decrypting...'); const salt=payloadBytes.slice(0,16), iv=payloadBytes.slice(16,28), ciphertext=payloadBytes.slice(28); const pw=document.getElementById('decrypt-password').value; if(!pw){ alert('Password required'); return; } try{ plainBytes=await decryptBytes(salt,iv,ciphertext,pw);}catch(e){ alert(e.message); setExtractStatus('Decryption failed'); return; } } else { plainBytes=payloadBytes; }
+    const metadataLen=new DataView(plainBytes.buffer,0,4).getUint32(0,false); const metadataBytes=plainBytes.slice(4,4+metadataLen); const metadata=JSON.parse(bytesToString(metadataBytes));
+    let offset=4+metadataLen; const textContent=metadata.hasText?bytesToString(plainBytes.slice(offset,offset+metadata.textLen)):null; offset+=metadata.hasText?metadata.textLen:0;
+    const fileContent=metadata.hasFile?plainBytes.slice(offset,offset+metadata.fileSize):null; offset+=metadata.hasFile?metadata.fileSize:0;
+    let out=''; if(metadata.hasText) out+=`Extracted Text:\n${textContent}\n\n`; if(metadata.hasFile) out+=`Extracted File: ${metadata.fileName} (${(metadata.fileSize/1024).toFixed(1)} KB)\n\nDownloaded automatically.\n`; document.getElementById('extracted-output').textContent=out;
+    if(metadata.hasFile){ downloadFile(fileContent,metadata.fileName); }
+    setExtractStatus('Extraction complete ✔'); document.getElementById('extract-progress').value=100;
+  }catch(err){ alert('Error: '+(err.message||err)); setExtractStatus('Error occurred'); document.getElementById('extract-progress').value=0; console.error(err); }
+}
+function downloadFile(uint8arr,filename){
+  const blob=new Blob([uint8arr]); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),5000); // ✅ delayed revoke
+}
+
+/* ------------------------- */
+/* Compare flow              */
+/* ------------------------- */
+async function compareImages(){
+  try{
+    const origFile=document.getElementById('original-image').files[0], stegoFile=document.getElementById('compare-stego').files[0];
+    if(!origFile||!stegoFile){ alert('Select both original and stego image'); return; }
+    const [origImg,stegoImg]=await Promise.all([loadImageFromFile(origFile), loadImageFromFile(stegoFile)]);
+    const w=Math.min(origImg.width,stegoImg.width), h=Math.min(origImg.height,stegoImg.height);
+    const c1=document.createElement('canvas'), c2=document.createElement('canvas'); c1.width=c2.width=w; c1.height=c2.height=h;
+    c1.getContext('2d').drawImage(origImg,0,0,w,h); c2.getContext('2d').drawImage(stegoImg,0,0,w,h);
+    const d1=c1.getContext('2d').getImageData(0,0,w,h), d2=c2.getContext('2d').getImageData(0,0,w,h), diffCtx=document.getElementById('diff-canvas').getContext('2d');
+    const diffData=diffCtx.createImageData(w,h); let diffCount=0; for(let i=0;i<d1.data.length;i+=4){ let r=Math.abs(d1.data[i]-d2.data[i]), g=Math.abs(d1.data[i+1]-d2.data[i+1]), b=Math.abs(d1.data[i+2]-d2.data[i+2]); const diff=(r+g+b)/3; if(diff>0) diffCount++; diffData.data[i]=r; diffData.data[i+1]=g; diffData.data[i+2]=b; diffData.data[i+3]=255; }
+    diffCtx.putImageData(diffData,0,0); const diffCanvas=document.getElementById('diff-canvas'); diffCanvas.style.display='block'; diffCanvas.width=w; diffCanvas.height=h;
+    const pct=(diffCount/(w*h)*100).toFixed(4); document.getElementById('compare-results').textContent=`Pixel differences: ${diffCount} of ${w*h} (${pct}%)`;
+  }catch(err){ alert('Compare error: '+err.message); console.error(err); }
+}
+
+/* ------------------------- */
+/* Status helper             */
+/* ------------------------- */
+function setHideStatus(s){ document.getElementById('hide-status').textContent=s; }
+function setExtractStatus(s){ document.getElementById('extract-status').textContent=s; }
+</script>
+</body>
+</html>
